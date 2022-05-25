@@ -1,40 +1,47 @@
 package main
 
 import (
-	"context"
-	"log"
-	"net"
+  "context"
+  "flag"
+  "net/http"
 
-	"google.golang.org/grpc"
+  "github.com/golang/glog"
+  "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+  "google.golang.org/grpc"
+  "google.golang.org/grpc/credentials/insecure"
 
-	helloworldpb "github.com/drevispas/grpc-gateway-demo/proto/helloworld"
+  gw "github.com/drevispas/grpc-gateway-demo/proto/gen/go/helloworld/v1/hello_world"  // Update
 )
 
-type server struct{
-	helloworldpb.UnimplementedGreeterServer
-}
+var (
+  // command-line options:
+  // gRPC server endpoint
+  grpcServerEndpoint = flag.String("grpc-server-endpoint",  "localhost:9090", "gRPC server endpoint")
+)
 
-func NewServer() *server {
-	return &server{}
-}
+func run() error {
+  ctx := context.Background()
+  ctx, cancel := context.WithCancel(ctx)
+  defer cancel()
 
-func (s *server) SayHello(ctx context.Context, in *helloworldpb.HelloRequest) (*helloworldpb.HelloReply, error) {
-	return &helloworldpb.HelloReply{Message: in.Name + " world"}, nil
+  // Register gRPC server endpoint
+  // Note: Make sure the gRPC server is running properly and accessible
+  mux := runtime.NewServeMux()
+  opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
+  err := gw.RegisterYourServiceHandlerFromEndpoint(ctx, mux,  *grpcServerEndpoint, opts)
+  if err != nil {
+    return err
+  }
+
+  // Start HTTP server (and proxy calls to gRPC server endpoint)
+  return http.ListenAndServe(":8081", mux)
 }
 
 func main() {
-	// Create a listener on TCP port
-	lis, err := net.Listen("tcp", ":8080")
-	if err != nil {
-		log.Fatalln("Failed to listen:", err)
-	}
+  flag.Parse()
+  defer glog.Flush()
 
-	// Create a gRPC server object
-	s := grpc.NewServer()
-	// Attach the Greeter service to the server
-	helloworldpb.RegisterGreeterServer(s, &server{})
-	// Serve gRPC Server
-	log.Println("Serving gRPC on 0.0.0.0:8080")
-	log.Fatal(s.Serve(lis))
+  if err := run(); err != nil {
+    glog.Fatal(err)
+  }
 }
-
